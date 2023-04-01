@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from RNs_env import Relay_Association_ENV
+from RNs_env import CommunicationEnv
 
 from DDPG import DDPG, Actor, Critic, prepare_training_inputs
 from DDPG import OrnsteinUhlenbeckProcess as OUProcess
@@ -8,7 +8,7 @@ from memory import ReplayMemory
 from train_utils import to_tensor
 from target_update import soft_update
 
-env = Relay_Association_ENV
+env = CommunicationEnv
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # HYPERPARAMETER
