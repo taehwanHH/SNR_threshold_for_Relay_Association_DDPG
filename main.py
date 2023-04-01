@@ -11,7 +11,7 @@ from target_update import soft_update
 env = Relay_Association_ENV
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-# HYPERPARAMETERS
+# HYPERPARAMETER
 lr_actor = 0.005
 lr_critic = 0.001
 gamma = 0.99
