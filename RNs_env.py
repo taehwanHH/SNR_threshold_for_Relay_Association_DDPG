@@ -89,17 +89,16 @@ def calculate_ber(eta):
             ga_hat_wo_PR = np.mean(yr[:, 0: P], 1)  # via P pilots
 
 
-        print(ga_hat_wo_PR)
-        print(np.kron(np.ones(shape=(1, Dsymb)), ga_hat_wo_PR).shape)
+        print(yr.shape)
         # equalization
-        x_d_hat_RN_K_wo_PR = yr[:, data_index] / np.kron(np.ones(shape=(Dsymb,)), ga_hat_wo_PR)
+        x_d_hat_RN_K_wo_PR = yr[:, data_index] / np.kron(np.ones(shape=(1,Dsymb)), ga_hat_wo_PR).reshape((len(yr),-1))
         x_dr_wo_PR = []
 
         # regeneration per DF - RN
         for k in range(0, K):
             x_d_hat_RN_wo_PR = x_d_hat_RN_K_wo_PR[k, :]
             D_bit_hat_RN_wo_PR = QAM_demod_Es(x_d_hat_RN_wo_PR, MOD)
-            x_dr_wo_PR = np.vstack(x_dr_wo_PR, QAM_mod_Es(D_bit_hat_RN_wo_PR, MOD))
+            x_dr_wo_PR = np.vstack(x_dr_wo_PR, QAM_mod_Es(D_bit_hat_RN_wo_PR, MOD)) ##
 
         # AWGN at DN
         zd = error_insertion * np.sqrt(sigma2 / 2) * (np.random.randn(1, N) + 1j * np.random.randn(1, N))
@@ -139,7 +138,7 @@ def calculate_ber(eta):
 
     return err_w_PRb
 
-print(calculate_ber(40))
+print(calculate_ber(20))
 
 class CommunicationEnv:
     def __init__(self, eta_upper, target_ber, noise_var):
