@@ -1,100 +1,159 @@
 import numpy as np
 import gym
-from sk_dsp_comm import fec_conv
 import matlab.engine
+from digital_comm_func  import db2pow, pow2db, xi_dB, QAM_mod_Es, QAM_demod_Es
 
 eng = matlab.engine.start_matlab()
 
+# given parameters
+MOD = 6  # 2, 4, 6:  # of signal modulation bits: 1, 2, 4, 6, 8: (BPSK, QPSK, 16QAM, 64QAM, 256QAM):M=2^m# Sig Mod size
+P_dBm = 32  # dBm
+Kt = 40  # total number of RNs
+P = 14  # 14, 24: number of pilots per CSI estimation
+error_insertion = 1 # 0 = free, 1 = error
+N = 1806 + P  # number of symbols per block
+S = P  # max number of phase shift within a block[0, 1, ...]
+P_bits = P  # BPSK for pilots
+W = 25 * 10e3  # bandwidth 25 kHz
+sigma2 = W * db2pow(-174) * 10 **(-3)  # noise power [Watt]
+A = 1200  # area AxA m ^ 2
 fc = 2  # carrier frequency[GHz]
 
-def db2pow(db):
-    return 10 ** (db / 10)
+# conv.enc. ---------------------------------------
+trellis = eng.poly2trellis(matlab.double([5, 4]), matlab.double([[23, 35, 0], [0, 5, 13]]))  # R = 2 / 3
+N_input = np.log2(trellis['numInputSymbols'])  # Number of input bit streams
+N_output = np.log2(trellis['numOutputSymbols'])  # Number of output bit streams
+
+coderate = float(N_input / N_output)
+st2 = 4831  # States for random number
+ConstraintLength = np.log2(trellis['numStates']) + 1
+traceBack = np.ceil(7.5 * (ConstraintLength - 1))  # coding block size(bits)
+Dsymb = N - P  # data symbol for a block
+D_bits = int(MOD * Dsymb * coderate)
+pilot_index = np.arange(0, P)
+data_index = np.arange(P, N)
+P_SN = db2pow(P_dBm) * 10 ** (-3)
+P_RN = db2pow(P_dBm) * 10 ** (-3)
+# ---------------------------------
+# location coordinations
+SNx = 0
+SNy = 0
+DNx = A
+DNy = A
+
+# location realization
+RNx = A / 50 + (A - 2 * A / 50) * np.random.rand(Kt, 1)
+RNy = A / 50 + (A - 2 * A / 50) * np.random.rand(Kt, 1)
+# distances
+dSR = np.sqrt(RNx ** 2 + RNy ** 2)
+dRD = np.sqrt((RNx - DNx) ** 2 + (RNy - DNy) ** 2)
 
 
-def xi_dB(dist):
-    return - 12.7 - 26 * np.log10(fc) - 36.7 * np.log10(dist)
+def calculate_ber(eta):
+    # one block of frame
+    tx_bits = np.random.randint(2, size=(D_bits, 1))  # data bits for one block
+    tx_bits_enc = eng.convenc(tx_bits, trellis)
+    tx_bits_enc_inter = eng.randintrlv(tx_bits_enc, st2)
+
+    p_bits = np.ones(shape=(P_bits,))  # pilot bits for the first hop
+    x_d = QAM_mod_Es(tx_bits_enc_inter, MOD)
+    x = np.concatenate((p_bits, x_d))  # BPSK for pilots
+
+    # one block of channel
+    g = np.sqrt(db2pow(xi_dB(dSR))) * np.sqrt(1 / 2) * (np.random.randn(Kt, 1) + 1j * np.random.randn(Kt, 1))
+    h = np.sqrt(db2pow(xi_dB(dRD))) * np.sqrt(1 / 2) * (np.random.randn(Kt, 1) + 1j * np.random.randn(Kt, 1))
+
+    # RN association
+    # calculate received SNRs at RNs
+    K_ind = np.argwhere(pow2db(abs(np.sqrt(P_SN) * g) ** 2 / sigma2) >= eta)  # index of active RNs
+    K_ind = K_ind[:, 0]
+    K = len(K_ind)
 
 
-def QAM_mod_Es(data, bit):
-    N_input = len(data)
-    d = np.reshape(data, (bit, N_input / bit))
+    if K < 1:
+        err_w_PRb = D_bits * coderate  # if no RN is associated, set all errors
 
-    if bit == 1:  # BPSK
-        a = 1
-        x_real = 2 * d[0, :] - 1
-        x_imag = np.zeros(size=(1, N_input))
+    else:
+        ga = g[K_ind]  # 1st - link channel of active RNs
+        ha = h[K_ind]  # 2nd - link channel of active RNs
 
-    elif bit == 2:  # QPSK"1" --> +, "0" --> -,
-        a = 1 / np.sqrt(2)
-        x_real = (2 * d[0, :] - 1)
-        x_imag = (2 * d[1, :] - 1)
+        ## The 1st Phase
+        zr = error_insertion * np.sqrt(sigma2 / 2) * (np.random.randn(K, N) + 1j * np.random.randn(K, N))  # noise generation
+        yr = ga * np.sqrt(P_SN) * x + zr  # Rx signals at the active RNs
 
-    elif bit == 4:  # 16QAM
-        a = 1 / np.sqrt(10)
-        x_real = np.multiply((2 * d[0, :] - 1), (2 * d[1, :] - 1 + 2))  # (sign) * (1, 3)
-        x_imag = np.multiply((2 * d[2, :] - 1), (2 * d[3, :] - 1 + 2))
-    elif bit == 6:  # 64QAM
-        a = 1 / np.sqrt(42)
-        x_real = np.multiply((2 * d[0, :] - 1), np.multiply((2 * d[1, :] - 1), (
-                    2 * d[2, :] + 1) + 4))  # (sign) * ((sign) * (1, 3) + 4) = ( sign) * (1,3,5,7)
-        x_imag = np.multiply((2 * d[3, :] - 1), np.multiply((2 * d[4, :] - 1), (2 * d[5, :] + 1) + 4))
-
-    return (x_real + 1j * x_imag) * a
+        ## w / o PR: conventional method(benchmarking)
+        # channel estimation at RNs via P pilots
+        if error_insertion == 0:
+            ga_hat_wo_PR = ga * np.sqrt(P_SN)
+        else:
+            ga_hat_wo_PR = np.mean(yr[:, 0: P], 1)  # via P pilots
 
 
+        print(ga_hat_wo_PR)
+        print(np.kron(np.ones(shape=(1, Dsymb)), ga_hat_wo_PR).shape)
+        # equalization
+        x_d_hat_RN_K_wo_PR = yr[:, data_index] / np.kron(np.ones(shape=(Dsymb,)), ga_hat_wo_PR)
+        x_dr_wo_PR = []
 
+        # regeneration per DF - RN
+        for k in range(0, K):
+            x_d_hat_RN_wo_PR = x_d_hat_RN_K_wo_PR[k, :]
+            D_bit_hat_RN_wo_PR = QAM_demod_Es(x_d_hat_RN_wo_PR, MOD)
+            x_dr_wo_PR = np.vstack(x_dr_wo_PR, QAM_mod_Es(D_bit_hat_RN_wo_PR, MOD))
+
+        # AWGN at DN
+        zd = error_insertion * np.sqrt(sigma2 / 2) * (np.random.randn(1, N) + 1j * np.random.randn(1, N))
+        # retransmission
+        h_wo_PR = np.kron(np.ones(shape=(1, N)), ha)
+
+        ## w / PR: Proposed method
+        # channel estimation at RNs via PxS pilots the same as w / o PR
+        # pilot insertion & regeneration
+        x_stackr_w_PR = np.zeros(size=(K, N))
+        x_stackr_w_PR[:, data_index] = x_dr_wo_PR
+        theta_tmp = 2 * np.pi * np.random.rand(K, S)
+        x_stackr_w_PR[:, pilot_index] = 1
+
+        theta_data = np.kron(theta_tmp, np.ones(size=(1, (N - P) / S)))
+        theta_pilot = np.kron(theta_tmp, np.ones(size=(1, P / S)))
+        theta = np.concatenate((theta_pilot, theta_data))
+        h_w_PR = h_wo_PR * np.exp(1j * theta)  # PR: effective ch
+        ydo = sum(h_w_PR * np.sqrt(P_RN) * x_stackr_w_PR, 1) + zd  # Rx signals at the active RNs
+
+        # channel estimation at DN
+        if error_insertion == 0:
+            ha_w_PR_hat = sum(np.kron(ha, np.ones(size=(1, S))) * np.exp(1j * theta_tmp), 1) * np.sqrt(P_RN)
+        else:
+            ha_w_PR_hat = np.mean(np.reshape(ydo[0, pilot_index], (P / S, S)), 1)
+
+        # channel equalization
+        x_d_hat_DN_stacko = ydo[:, data_index] / np.kron(ha_w_PR_hat, np.ones(size=(1, (N - P) / S)))
+        # demodulation
+        x_d_hat_DNo = x_d_hat_DN_stacko
+        D_bit_hat_DNo = QAM_demod_Es(x_d_hat_DNo, MOD)
+        D_bit_hat_DNo_deinter = eng.randdeintrlv(D_bit_hat_DNo, st2)  # Deinterleave
+        D_bit_hat_DNo_decoded = eng.vitdec(D_bit_hat_DNo_deinter, trellis, traceBack, 'trunc', 'hard')
+
+        # error check at DN
+        err_w_PRb = sum(abs(D_bit_hat_DNo_decoded - tx_bits))
+
+    return err_w_PRb
+
+print(calculate_ber(40))
 
 class CommunicationEnv:
     def __init__(self, eta_upper, target_ber, noise_var):
-
         self.target_ber = target_ber
         self.noise_var = noise_var
 
         # Define the observation space and action space
         self.observation_space = gym.spaces.Box(low=0, high=1, shape=(1,))
         self.action_space = gym.spaces.Box(low=0, high=eta_upper, shape=(1,))
-     
-        self.MOD = 6 # 2, 4, 6:  # of signal modulation bits: 1, 2, 4, 6, 8: (BPSK, QPSK, 16QAM, 64QAM, 256QAM):M=2^m# Sig Mod size
-        P_dBm = 32 # dBm
-        Kt = 40 # total number of RNs
-        P = 14 # 14, 24: number of pilots per CSI estimation
-        error_insertion = 1 # 0 = free, 1 = error
-        N = 1806 + P # number of symbols per block
-        S = P # max number of phase shift within a block[0, 1, ...]
-        self.P_bits = P # BPSK for pilots
-        W = 25 * 10e3 # bandwidth 25 kHz
-        sigma2 = W * db2pow(-174) * 10 ^ (-3) # noise power [Watt]
-        A = 1200 # area AxA m ^ 2
-        self.fc = fc
 
-        # conv.enc. ---------------------------------------
-        self.trellis = eng.poly2trellis(matlab.double([5, 4]), matlab.double([[23, 35, 0], [0, 5, 13]])) # R = 2 / 3
-        N_input = np.log2(self.trellis.numInputSymbols) # Number of input bit streams
-        N_output = np.log2(self.trellis.numOutputSymbols) # Number of output bit streams
-        coderate = N_input / N_output
-        self.st2 = 4831 # States for random number
-        ConstraintLength = np.log2(self.trellis.numStates) + 1
-        traceBack = np.ceil(7.5 * (ConstraintLength - 1)) # coding block size(bits)
-        Dsymb = N - P # data symbol for a block
-        self.D_bits = self.MOD * Dsymb * coderate
-        pilot_index = np.arrange(1, P+1)
-        data_index = np.arrange(P+1, N+1)
-        P_SN = db2pow(P_dBm) * 10 ^ (-3)
-        P_RN = db2pow(P_dBm) * 10 ^ (-3)
-        # ---------------------------------
-        # location coordinations
-        SNx = 0 
-        SNy = 0 
-        DNx = A 
-        DNy = A
 
-         
-        # location realization
-        RNx = A / 50 + (A - 2 * A / 50). * rand(Kt, 1) 
-        RNy = A / 50 + (A - 2 * A / 50). * rand(Kt, 1) 
-         # distances
-        dSR = sqrt(RNx. ^ 2 + RNy. ^ 2) 
-        dRD = sqrt((RNx - DNx). ^ 2 + (RNy - DNy). ^ 2) 
+
+
+
 
     def step(self, action):
         # Convert the action from a tensor to a numpy array
@@ -141,87 +200,6 @@ class CommunicationEnv:
 
 
 
-
-    def calculate_ber(self, eta):
-        # one block of frame
-        tx_bits = np.ramdom.randint(2, size=(self.D_bits, 1)) # data bits for one block
-        tx_bits_enc = eng.convenc(tx_bits, self.trellis)
-        tx_bits_enc_inter = eng.randintrlv(tx_bits_enc, self.st2)
-        p_bits = np.ones(shape=(1, self.P_bits)) # pilot bits for the first hop
-        x_d = QAM_mod_Es(tx_bits_enc_inter, self.MOD)
-        x = np.concatenate(p_bits, x_d) # BPSK for pilots
-
-        # one block of channel
-        g = np.sqrt(db2pow(xi_dB(dSR))). * sqrt(1 / 2). * (randn(Kt, 1) + 1i * randn(Kt, 1))
-        h = sqrt(db2pow(xi_dB(dRD))). * sqrt(1 / 2). * (randn(Kt, 1) + 1i * randn(Kt, 1))
-
-        # RN association
-        # calculate received SNRs at RNs
-        K_ind = find(pow2db(abs(sqrt(P_SN) * g). ^ 2. / sigma2) >= eta) # index of active RNs
-        K = length(K_ind)
-        if K < 1:
-        err_w_PRb(b) = D_bits * coderate # if no RN is associated, set all errors
-        else :
-
-        ga = g(K_ind) # 1st - link channel of active RNs
-        ha = h(K_ind) # 2nd - link channel of active RNs
-
-        ## The 1st Phase
-        zr = error_insertion * sqrt(sigma2 / 2) * (randn(K, N) + 1i * randn(K, N)) # noise generation
-        yr = ga * sqrt(P_SN) * x + zr # Rx signals at the active RNs
-        ## w / o PR: conventional method(benchmarking)
-        # channel estimation at RNs via P pilots
-        if error_insertion == 0:
-            ga_hat_wo_PR = ga * sqrt(P_SN)
-        else:
-            ga_hat_wo_PR = mean(yr(:, 1: P), 2) # via P pilots
-
-        # equalization
-        x_d_hat_RN_K_wo_PR = yr(:, data_index)./ kron(ones(1, Dsymb), ga_hat_wo_PR)
-        x_dr_wo_PR = []
-        # regeneration per DF - RN
-        for k=1:K
-        x_d_hat_RN_wo_PR = x_d_hat_RN_K_wo_PR(k,:)
-        D_bit_hat_RN_wo_PR = QAM_demod_Es(x_d_hat_RN_wo_PR, MOD)
-        x_dr_wo_PR = [x_dr_wo_PR QAM_mod_Es(D_bit_hat_RN_wo_PR, MOD)]
-
-
-        # AWGN at DN
-        zd = error_insertion * sqrt(sigma2 / 2) * (randn(1, N) + 1i * randn(1, N))
-        # retransmission
-        h_wo_PR = kron(ones(1, N), ha)
-
-        ## w / PR: Proposed method
-        # channel estimation at RNs via PxS pilots thesame as w / o PR
-        # pilot insertion & regeneration
-        x_stackr_w_PR = zeros(K, N)
-        x_stackr_w_PR(:, data_index) = x_dr_wo_PR
-        theta_tmp = 2 * pi * rand(K, S)
-        x_stackr_w_PR(:, pilot_index) = 1
-
-        theta_data = kron(theta_tmp, ones(1, (N - P) / S))
-        theta_pilot = kron(theta_tmp, ones(1, P / S))
-        theta = [theta_pilot theta_data]
-        h_w_PR = h_wo_PR. * exp(1i * theta) # PR: effective ch
-
-        ydo = sum(h_w_PR. * sqrt(P_RN). * x_stackr_w_PR, 1) + zd # Rx signals at the active RNs
-
-        # channel estimation at DN
-        if error_insertion == 0:
-            ha_w_PR_hat = sum(kron(ha, ones(1, S)). * exp(1i * theta_tmp), 1)*sqrt(P_RN)
-        else:
-            ha_w_PR_hat = mean(reshape(ydo(1, pilot_index), P / S, S), 1)
-
-        # channel equalization
-        x_d_hat_DN_stacko = ydo(:, data_index)./ kron(ha_w_PR_hat, ones(1, (N - P) / S))
-        # demodulation
-        x_d_hat_DNo = x_d_hat_DN_stacko
-        D_bit_hat_DNo = QAM_demod_Es(x_d_hat_DNo, MOD)
-        D_bit_hat_DNo_deinter = randdeintrlv(D_bit_hat_DNo, st2) # Deinterleave
-        D_bit_hat_DNo_decoded = vitdec(D_bit_hat_DNo_deinter, trellis, traceBack, 'trunc', 'hard')
-
-        # error check at DN
-        err_w_PRb(b) = sum(abs(D_bit_hat_DNo_decoded - tx_bits'))
 
 
 
