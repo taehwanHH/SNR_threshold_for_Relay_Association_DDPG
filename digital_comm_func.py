@@ -14,8 +14,9 @@ def xi_dB(dist, fc=2):
 
 
 def QAM_mod_Es(data, bit):
-    N_input = len(data)
-    d = np.reshape(np.array(data), (bit, N_input // bit))
+    data = np.array(data)
+    N_input = data.size
+    d = np.reshape(np.array(data), (bit, int(N_input / bit)))
 
     if bit == 1:  # BPSK
         a = 1
@@ -47,8 +48,8 @@ def QAM_demod_Es(y, bit):
     #   of "bit" is 1, 2, 4 or 6.
     # Input bit is "0" or "1" row vector
     # Normalize the symbol energy to "1"
-
-    N_input = len(y)
+    y = np.array(y)
+    N_input = y.size
     d_hat = np.zeros(shape=(bit, N_input))
 
     if  bit == 1:

@@ -88,17 +88,17 @@ def calculate_ber(eta):
         else:
             ga_hat_wo_PR = np.mean(yr[:, 0: P], 1)  # via P pilots
 
-
-        print(yr.shape)
         # equalization
         x_d_hat_RN_K_wo_PR = yr[:, data_index] / np.kron(np.ones(shape=(1,Dsymb)), ga_hat_wo_PR).reshape((len(yr),-1))
         x_dr_wo_PR = []
+
 
         # regeneration per DF - RN
         for k in range(0, K):
             x_d_hat_RN_wo_PR = x_d_hat_RN_K_wo_PR[k, :]
             D_bit_hat_RN_wo_PR = QAM_demod_Es(x_d_hat_RN_wo_PR, MOD)
-            x_dr_wo_PR = np.vstack(x_dr_wo_PR, QAM_mod_Es(D_bit_hat_RN_wo_PR, MOD)) ##
+
+            x_dr_wo_PR.append(QAM_mod_Es(D_bit_hat_RN_wo_PR, MOD))
 
         # AWGN at DN
         zd = error_insertion * np.sqrt(sigma2 / 2) * (np.random.randn(1, N) + 1j * np.random.randn(1, N))
@@ -108,37 +108,43 @@ def calculate_ber(eta):
         ## w / PR: Proposed method
         # channel estimation at RNs via PxS pilots the same as w / o PR
         # pilot insertion & regeneration
-        x_stackr_w_PR = np.zeros(size=(K, N))
+        x_stackr_w_PR = np.zeros(shape=(K, N))
         x_stackr_w_PR[:, data_index] = x_dr_wo_PR
         theta_tmp = 2 * np.pi * np.random.rand(K, S)
         x_stackr_w_PR[:, pilot_index] = 1
 
-        theta_data = np.kron(theta_tmp, np.ones(size=(1, (N - P) / S)))
-        theta_pilot = np.kron(theta_tmp, np.ones(size=(1, P / S)))
-        theta = np.concatenate((theta_pilot, theta_data))
+        theta_data = np.kron(theta_tmp, np.ones(shape=(1, int((N - P) / S))))
+        theta_pilot = np.kron(theta_tmp, np.ones(shape=(1, int(P / S))))
+        theta = np.append(theta_pilot, theta_data, axis=1)
+
         h_w_PR = h_wo_PR * np.exp(1j * theta)  # PR: effective ch
         ydo = sum(h_w_PR * np.sqrt(P_RN) * x_stackr_w_PR, 1) + zd  # Rx signals at the active RNs
 
         # channel estimation at DN
         if error_insertion == 0:
-            ha_w_PR_hat = sum(np.kron(ha, np.ones(size=(1, S))) * np.exp(1j * theta_tmp), 1) * np.sqrt(P_RN)
+            ha_w_PR_hat = sum(np.kron(ha, np.ones(shape=(1, S))) * np.exp(1j * theta_tmp), 1) * np.sqrt(P_RN)
         else:
-            ha_w_PR_hat = np.mean(np.reshape(ydo[0, pilot_index], (P / S, S)), 1)
+            ha_w_PR_hat = np.mean(np.reshape(ydo[0, pilot_index], (int(P / S), S)), 0)
+
 
         # channel equalization
-        x_d_hat_DN_stacko = ydo[:, data_index] / np.kron(ha_w_PR_hat, np.ones(size=(1, (N - P) / S)))
+        x_d_hat_DN_stacko = ydo[:, data_index] / np.kron(ha_w_PR_hat, np.ones(shape=(1, int((N - P) / S))))
         # demodulation
         x_d_hat_DNo = x_d_hat_DN_stacko
         D_bit_hat_DNo = QAM_demod_Es(x_d_hat_DNo, MOD)
         D_bit_hat_DNo_deinter = eng.randdeintrlv(D_bit_hat_DNo, st2)  # Deinterleave
         D_bit_hat_DNo_decoded = eng.vitdec(D_bit_hat_DNo_deinter, trellis, traceBack, 'trunc', 'hard')
 
+
+        print(D_bit_hat_DNo_decoded)
+        print(np.array(D_bit_hat_DNo_decoded).reshape(-1))
+        print(tx_bits.reshape(-1))
         # error check at DN
-        err_w_PRb = sum(abs(D_bit_hat_DNo_decoded - tx_bits))
+        err_w_PRb = sum(abs(np.array(D_bit_hat_DNo_decoded).reshape(-1) - tx_bits.reshape(-1)))
 
     return err_w_PRb
 
-print(calculate_ber(20))
+print(calculate_ber(10))
 
 class CommunicationEnv:
     def __init__(self, eta_upper, target_ber, noise_var):
