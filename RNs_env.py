@@ -3,6 +3,7 @@ import gym
 import matlab.engine
 from digital_comm_func  import db2pow, pow2db, xi_dB, QAM_mod_Es, QAM_demod_Es
 
+np.random.seed(0)
 eng = matlab.engine.start_matlab()
 
 # given parameters
@@ -35,6 +36,7 @@ data_index = np.arange(P, N)
 P_SN = db2pow(P_dBm) * 10 ** (-3)
 P_RN = db2pow(P_dBm) * 10 ** (-3)
 # ---------------------------------
+
 # location coordinations
 SNx = 0
 SNy = 0
@@ -55,9 +57,9 @@ def calculate_ber(eta):
     tx_bits_enc = eng.convenc(tx_bits, trellis)
     tx_bits_enc_inter = eng.randintrlv(tx_bits_enc, st2)
 
-    p_bits = np.ones(shape=(P_bits,))  # pilot bits for the first hop
+    p_bits = np.ones(shape=(1,P_bits))  # pilot bits for the first hop
     x_d = QAM_mod_Es(tx_bits_enc_inter, MOD)
-    x = np.concatenate((p_bits, x_d))  # BPSK for pilots
+    x = np.append(p_bits, x_d)  # BPSK for pilots
 
     # one block of channel
     g = np.sqrt(db2pow(xi_dB(dSR))) * np.sqrt(1 / 2) * (np.random.randn(Kt, 1) + 1j * np.random.randn(Kt, 1))
@@ -68,7 +70,6 @@ def calculate_ber(eta):
     K_ind = np.argwhere(pow2db(abs(np.sqrt(P_SN) * g) ** 2 / sigma2) >= eta)  # index of active RNs
     K_ind = K_ind[:, 0]
     K = len(K_ind)
-
 
     if K < 1:
         err_w_PRb = D_bits * coderate  # if no RN is associated, set all errors
@@ -89,16 +90,14 @@ def calculate_ber(eta):
             ga_hat_wo_PR = np.mean(yr[:, 0: P], 1)  # via P pilots
 
         # equalization
-        x_d_hat_RN_K_wo_PR = yr[:, data_index] / np.kron(np.ones(shape=(1,Dsymb)), ga_hat_wo_PR).reshape((len(yr),-1))
+        x_d_hat_RN_K_wo_PR = yr[:, data_index] / np.kron(np.ones(shape=(1, Dsymb)), ga_hat_wo_PR.reshape((-1,1)))
         x_dr_wo_PR = []
-
 
         # regeneration per DF - RN
         for k in range(0, K):
             x_d_hat_RN_wo_PR = x_d_hat_RN_K_wo_PR[k, :]
             D_bit_hat_RN_wo_PR = QAM_demod_Es(x_d_hat_RN_wo_PR, MOD)
-
-            x_dr_wo_PR.append(QAM_mod_Es(D_bit_hat_RN_wo_PR, MOD))
+            x_dr_wo_PR.append(QAM_mod_Es(D_bit_hat_RN_wo_PR, MOD).tolist())
 
         # AWGN at DN
         zd = error_insertion * np.sqrt(sigma2 / 2) * (np.random.randn(1, N) + 1j * np.random.randn(1, N))
@@ -108,8 +107,10 @@ def calculate_ber(eta):
         ## w / PR: Proposed method
         # channel estimation at RNs via PxS pilots the same as w / o PR
         # pilot insertion & regeneration
-        x_stackr_w_PR = np.zeros(shape=(K, N))
-        x_stackr_w_PR[:, data_index] = x_dr_wo_PR
+        x_stackr_w_PR = np.zeros(shape=(K, N),dtype=complex)
+        x_stackr_w_PR[:, data_index] = np.array(x_dr_wo_PR)
+        ###
+        print(x_stackr_w_PR)
         theta_tmp = 2 * np.pi * np.random.rand(K, S)
         x_stackr_w_PR[:, pilot_index] = 1
 
@@ -136,15 +137,13 @@ def calculate_ber(eta):
         D_bit_hat_DNo_decoded = eng.vitdec(D_bit_hat_DNo_deinter, trellis, traceBack, 'trunc', 'hard')
 
 
-        print(D_bit_hat_DNo_decoded)
-        print(np.array(D_bit_hat_DNo_decoded).reshape(-1))
-        print(tx_bits.reshape(-1))
+
         # error check at DN
         err_w_PRb = sum(abs(np.array(D_bit_hat_DNo_decoded).reshape(-1) - tx_bits.reshape(-1)))
 
     return err_w_PRb
 
-print(calculate_ber(10))
+print(calculate_ber(20))
 
 class CommunicationEnv:
     def __init__(self, eta_upper, target_ber, noise_var):
