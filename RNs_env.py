@@ -2,8 +2,8 @@ import numpy as np
 import gym
 import matlab.engine
 from digital_comm_func  import db2pow, pow2db, xi_dB, QAM_mod_Es, QAM_demod_Es
+import matplotlib.pyplot as plt
 
-np.random.seed(0)
 eng = matlab.engine.start_matlab()
 
 # given parameters
@@ -46,12 +46,13 @@ DNy = A
 # location realization
 RNx = A / 50 + (A - 2 * A / 50) * np.random.rand(Kt, 1)
 RNy = A / 50 + (A - 2 * A / 50) * np.random.rand(Kt, 1)
+
 # distances
 dSR = np.sqrt(RNx ** 2 + RNy ** 2)
 dRD = np.sqrt((RNx - DNx) ** 2 + (RNy - DNy) ** 2)
 
 
-def calculate_ber(eta):
+def calculate_err(eta):
     # one block of frame
     tx_bits = np.random.randint(2, size=(D_bits, 1))  # data bits for one block
     tx_bits_enc = eng.convenc(tx_bits, trellis)
@@ -77,7 +78,6 @@ def calculate_ber(eta):
     else:
         ga = g[K_ind]  # 1st - link channel of active RNs
         ha = h[K_ind]  # 2nd - link channel of active RNs
-
         ## The 1st Phase
         zr = error_insertion * np.sqrt(sigma2 / 2) * (np.random.randn(K, N) + 1j * np.random.randn(K, N))  # noise generation
         yr = ga * np.sqrt(P_SN) * x + zr  # Rx signals at the active RNs
@@ -109,24 +109,20 @@ def calculate_ber(eta):
         # pilot insertion & regeneration
         x_stackr_w_PR = np.zeros(shape=(K, N),dtype=complex)
         x_stackr_w_PR[:, data_index] = np.array(x_dr_wo_PR)
-        ###
-        print(x_stackr_w_PR)
         theta_tmp = 2 * np.pi * np.random.rand(K, S)
         x_stackr_w_PR[:, pilot_index] = 1
 
         theta_data = np.kron(theta_tmp, np.ones(shape=(1, int((N - P) / S))))
         theta_pilot = np.kron(theta_tmp, np.ones(shape=(1, int(P / S))))
         theta = np.append(theta_pilot, theta_data, axis=1)
-
         h_w_PR = h_wo_PR * np.exp(1j * theta)  # PR: effective ch
-        ydo = sum(h_w_PR * np.sqrt(P_RN) * x_stackr_w_PR, 1) + zd  # Rx signals at the active RNs
+        ydo = np.sum(h_w_PR * np.sqrt(P_RN) * x_stackr_w_PR, 0).reshape(1,-1) + zd  # Rx signals at the active RNs
 
         # channel estimation at DN
         if error_insertion == 0:
-            ha_w_PR_hat = sum(np.kron(ha, np.ones(shape=(1, S))) * np.exp(1j * theta_tmp), 1) * np.sqrt(P_RN)
+            ha_w_PR_hat = np.sum(np.kron(ha, np.ones(shape=(1, S))) * np.exp(1j * theta_tmp), 0) * np.sqrt(P_RN)
         else:
             ha_w_PR_hat = np.mean(np.reshape(ydo[0, pilot_index], (int(P / S), S)), 0)
-
 
         # channel equalization
         x_d_hat_DN_stacko = ydo[:, data_index] / np.kron(ha_w_PR_hat, np.ones(shape=(1, int((N - P) / S))))
@@ -137,13 +133,18 @@ def calculate_ber(eta):
         D_bit_hat_DNo_decoded = eng.vitdec(D_bit_hat_DNo_deinter, trellis, traceBack, 'trunc', 'hard')
 
 
-
         # error check at DN
         err_w_PRb = sum(abs(np.array(D_bit_hat_DNo_decoded).reshape(-1) - tx_bits.reshape(-1)))
 
     return err_w_PRb
 
-print(calculate_ber(20))
+def mean_err(eta, iter_num=10):
+    iter = np.arrange(iter_num)
+    s = 0
+    for i in iter:
+        s += calculate_err(eta)
+    return s/iter_num
+
 
 class CommunicationEnv:
     def __init__(self, eta_upper, target_ber, noise_var):
@@ -153,10 +154,6 @@ class CommunicationEnv:
         # Define the observation space and action space
         self.observation_space = gym.spaces.Box(low=0, high=1, shape=(1,))
         self.action_space = gym.spaces.Box(low=0, high=eta_upper, shape=(1,))
-
-
-
-
 
 
     def step(self, action):
@@ -170,7 +167,7 @@ class CommunicationEnv:
         action = np.clip(action, self.action_space.low, self.action_space.high)
 
         # Calculate the bit error rate (BER) based on the action value
-        ber = calculate_ber(action)
+        ber = mean_err(action)
 
         # Calculate the reward based on the BER and target BER
         reward = -np.abs(ber - self.target_ber)

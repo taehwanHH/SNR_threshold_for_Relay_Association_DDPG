@@ -35,8 +35,8 @@ def QAM_mod_Es(data, bit):
 
     elif bit == 6:  # 64QAM
         a = 1 / np.sqrt(42)
-        x_real = np.multiply((2 * d[0, :] - 1), np.multiply((2 * d[1, :] - 1), (2 * d[2, :] + 1) + 4))  # (sign) * ((sign) * (1, 3) + 4) = ( sign) * (1,3,5,7)
-        x_imag = np.multiply((2 * d[3, :] - 1), np.multiply((2 * d[4, :] - 1), (2 * d[5, :] + 1) + 4))
+        x_real = (2 * d[0, :] - 1) * ((2 * d[1, :] - 1) * (2 * d[2, :] + 1) + 4)  # (sign) * ((sign) * (1, 3) + 4) = ( sign) * (1,3,5,7)
+        x_imag = (2 * d[3, :] - 1) * ((2 * d[4, :] - 1) * (2 * d[5, :] + 1) + 4)
 
     return (x_real + 1j * x_imag) * a
 
