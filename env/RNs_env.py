@@ -152,8 +152,8 @@ class CommunicationEnv:
         self.target_ber = target_ber
         self.noise_var = noise_var
 
-        # Define the observation space and action space
-        self.observation_space = gym.spaces.Box(low=0, high=1, shape=(1,))
+        # Define the state space and action space
+        self.state_space = gym.spaces.Box(low=0, high=eta_upper, shape=(1,))
         self.action_space = gym.spaces.Box(low=0, high=eta_upper, shape=(1,))
 
     def step(self, action):
@@ -172,31 +172,31 @@ class CommunicationEnv:
         # Calculate the reward based on the BER and target BER
         reward = -np.abs(err - self.target_ber)
 
-        # Generate the next observation based on the current observation and action
-        obs = np.random.rand(self.n_state)
+        # Generate the next state based on the current state and action
+        state = np.random.rand(self.n_state)
 
-        # Add noise to the observation
-        obs += np.random.normal(0, self.noise_var, size=obs.shape)
+        # Add noise to the state
+        state += np.random.normal(0, self.noise_var, size=state.shape)
 
-        # Clip the observation to the observation space limits
-        obs = np.clip(obs, self.observation_space.low, self.observation_space.high)
+        # Clip the state to the state space limits
+        state = np.clip(state, self.state_space.low, self.state_space.high)
 
         # Check if the episode is done (i.e., if the BER is below the target BER)
-        done = ber <= self.target_ber
+        done = err <= self.target_ber
 
-        return obs, reward, done, {}
+        return state, reward, done, {}
 
     def reset(self):
-        # Generate a random observation to start the episode
-        obs = np.random.rand(self.n_state)
+        # Generate a random state to start the episode
+        state = np.random.rand(self.n_state)
 
-        # Add noise to the observation
-        obs += np.random.normal(0, self.noise_var, size=obs.shape)
+        # Add noise to the state
+        state += np.random.normal(0, self.noise_var, size=state.shape)
 
-        # Clip the observation to the observation space limits
-        obs = np.clip(obs, self.observation_space.low, self.observation_space.high)
+        # Clip the state to the state space limits
+        state = np.clip(state, self.state_space.low, self.state_space.high)
 
-        return obs
+        return state
 
 
 
