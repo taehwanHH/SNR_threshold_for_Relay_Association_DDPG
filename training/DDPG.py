@@ -33,8 +33,8 @@ class Actor(nn.Module):
                        out_act='Identity')
 
     def forward(self, state):
-        # Action space of Pendulum v0 is [-2.0, 2.0]
-        return self.mlp(state).clamp(-2.0, 2.0)
+        # Action space is [0  40]
+        return self.mlp(state).clamp(0.0, 40.0)
 
 
 class Critic(nn.Module):

@@ -138,6 +138,7 @@ def calculate_err(eta):
 
     return err_w_PRb
 
+
 def mean_err(eta, iter_num=10):
     iter = np.arrange(iter_num)
     s = 0
@@ -155,7 +156,6 @@ class CommunicationEnv:
         self.observation_space = gym.spaces.Box(low=0, high=1, shape=(1,))
         self.action_space = gym.spaces.Box(low=0, high=eta_upper, shape=(1,))
 
-
     def step(self, action):
         # Convert the action from a tensor to a numpy array
         action = action.detach().numpy()
@@ -167,10 +167,10 @@ class CommunicationEnv:
         action = np.clip(action, self.action_space.low, self.action_space.high)
 
         # Calculate the bit error rate (BER) based on the action value
-        ber = mean_err(action)
+        err = mean_err(action)
 
         # Calculate the reward based on the BER and target BER
-        reward = -np.abs(ber - self.target_ber)
+        reward = -np.abs(err - self.target_ber)
 
         # Generate the next observation based on the current observation and action
         obs = np.random.rand(self.n_state)
