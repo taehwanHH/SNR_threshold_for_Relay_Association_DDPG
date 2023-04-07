@@ -1,7 +1,7 @@
 import numpy as np
 import gym
 import matlab.engine
-from digital_comm_func  import db2pow, pow2db, xi_dB, QAM_mod_Es, QAM_demod_Es
+from digital_comm_func import db2pow, pow2db, xi_dB, QAM_mod_Es, QAM_demod_Es
 import matplotlib.pyplot as plt
 
 eng = matlab.engine.start_matlab()
