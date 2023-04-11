@@ -8,7 +8,7 @@ from training.memory import ReplayMemory
 from training.train_utils import to_tensor
 from training.target_update import soft_update
 
-env = CommunicationEnv
+env = CommunicationEnv(40,0,20)
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # HYPERPARAMETER
@@ -41,17 +41,18 @@ for n_epi in range(total_eps):
     cum_r = 0
 
     while True:
-        s = to_tensor(s, size=(1, 3)).to(DEVICE)
+        s = to_tensor(s, size=(1, 1)).to(DEVICE)
         a = agent.get_action(s).cpu().numpy() + ou_noise()[0]
         ns, r, done, info = env.step(a)
 
         experience = (s,
                       torch.tensor(a).view(1, 1),
                       torch.tensor(r).view(1, 1),
-                      torch.tensor(ns).view(1, 3),
+                      torch.tensor(ns).view(1, 1),
                       torch.tensor(done).view(1, 1))
         memory.push(experience)
 
+        temp_s = s
         s = ns
         cum_r += r
 
@@ -66,9 +67,10 @@ for n_epi in range(total_eps):
 
         if done:
             break
+        print(experience)
 
     if n_epi % print_every == 0:
-        msg = (n_epi, cum_r) # ~ -100 cumulative reward = "solved"
-        print("Episode : {} | Cumulative Reward : {} |".format(*msg))
+        msg = (n_epi, cum_r,temp_s ) # ~ -100 cumulative reward = "solved"
+        print("Episode : {} | Cumulative Reward : {} | eta : {}".format(*msg))
 
-torch.save(agent.state_dict(), 'ddpg_cartpole_user_trained.ptb')
+# torch.save(agent.state_dict(), 'ddpg_cartpole_user_trained.ptb')

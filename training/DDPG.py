@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from MLP import MultiLayerPerceptron as MLP
+from training.MLP import MultiLayerPerceptron as MLP
 
 
 class OrnsteinUhlenbeckProcess:
@@ -27,7 +27,7 @@ class Actor(nn.Module):
 
     def __init__(self):
         super(Actor, self).__init__()
-        self.mlp = MLP(3, 1,
+        self.mlp = MLP(1, 1,
                        num_neurons=[128, 64],
                        hidden_act='ReLU',
                        out_act='Identity')
@@ -41,7 +41,7 @@ class Critic(nn.Module):
 
     def __init__(self):
         super(Critic, self).__init__()
-        self.state_encoder = MLP(3, 64,
+        self.state_encoder = MLP(1, 64,
                                  num_neurons=[],
                                  out_act='ReLU')  # single layer model
         self.action_encoder = MLP(1, 64,

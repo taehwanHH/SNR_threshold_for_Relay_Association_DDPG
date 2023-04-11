@@ -1,8 +1,8 @@
 import numpy as np
 import gym
 import matlab.engine
-from digital_comm_func import db2pow, pow2db, xi_dB, QAM_mod_Es, QAM_demod_Es
-import matplotlib.pyplot as plt
+from env.digital_comm_func import db2pow, pow2db, xi_dB, QAM_mod_Es, QAM_demod_Es
+
 
 eng = matlab.engine.start_matlab()
 
@@ -140,7 +140,7 @@ def calculate_err(eta):
 
 
 def mean_err(eta, iter_num=10):
-    iter = np.arrange(iter_num)
+    iter = np.arange(iter_num)
     s = 0
     for i in iter:
         s += calculate_err(eta)
@@ -148,7 +148,7 @@ def mean_err(eta, iter_num=10):
 
 
 class CommunicationEnv:
-    def __init__(self, eta_upper, target_ber, noise_var):
+    def __init__(self, eta_upper, target_ber, max_stage=20, noise_var=sigma2):
         self.target_ber = target_ber
         self.noise_var = noise_var
 
@@ -156,9 +156,13 @@ class CommunicationEnv:
         self.state_space = gym.spaces.Box(low=0, high=eta_upper, shape=(1,))
         self.action_space = gym.spaces.Box(low=0, high=eta_upper, shape=(1,))
 
+        # Number of step per each episode
+
+        self.stage = max_stage
+
     def step(self, action):
         # Convert the action from a tensor to a numpy array
-        action = action.detach().numpy()
+        # action = action.detach().numpy()
 
         # Add noise to the action
         action += np.random.normal(0, 0.1, size=action.shape)
@@ -167,13 +171,13 @@ class CommunicationEnv:
         action = np.clip(action, self.action_space.low, self.action_space.high)
 
         # Calculate the bit error rate (BER) based on the action value
-        err = mean_err(action)
+        err = mean_err(action,10)
 
         # Calculate the reward based on the BER and target BER
         reward = -np.abs(err - self.target_ber)
 
         # Generate the next state based on the current state and action
-        state = np.random.rand(self.n_state)
+        state = action
 
         # Add noise to the state
         state += np.random.normal(0, self.noise_var, size=state.shape)
@@ -181,20 +185,28 @@ class CommunicationEnv:
         # Clip the state to the state space limits
         state = np.clip(state, self.state_space.low, self.state_space.high)
 
-        # Check if the episode is done (i.e., if the BER is below the target BER)
-        done = err <= self.target_ber
+        # if step == 0, done = True
+        self.stage -= 1
+
+        # Check if the episode is done
+        if self.stage == 0:
+            done = True
+        else:
+            done = False
 
         return state, reward, done, {}
 
     def reset(self):
         # Generate a random state to start the episode
-        state = np.random.rand(self.n_state)
+        state = np.random.rand(1,)
 
         # Add noise to the state
         state += np.random.normal(0, self.noise_var, size=state.shape)
 
         # Clip the state to the state space limits
         state = np.clip(state, self.state_space.low, self.state_space.high)
+
+        self.stage = 20
 
         return state
 
