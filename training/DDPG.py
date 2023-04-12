@@ -101,7 +101,7 @@ class DDPG(nn.Module):
 
     def get_action(self, state):
         with torch.no_grad():
-            a = self.actor(state)
+            a = self.actor(state).clip(-0.2,4)
         return a
 
     def update(self, state, action, reward, next_state, done):

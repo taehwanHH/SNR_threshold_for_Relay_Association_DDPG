@@ -1,24 +1,24 @@
 import torch
 import numpy as np
-from env.RNs_env import CommunicationEnv
-
+# from env.RNs_env import CommunicationEnv
+from env.temp_env import CommunicationEnv
 from training.DDPG import DDPG, Actor, Critic, prepare_training_inputs
 from training.DDPG import OrnsteinUhlenbeckProcess as OUProcess
 from training.memory import ReplayMemory
 from training.train_utils import to_tensor
 from training.target_update import soft_update
 
-env = CommunicationEnv(40,0,20)
+env = CommunicationEnv()
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # HYPERPARAMETER
-lr_actor = 0.005
-lr_critic = 0.001
-gamma = 0.99
-batch_size = 256
+lr_actor = 0.01 ## 0.005
+lr_critic = 0.005 ## 0.001
+gamma = 0.9 ## 0.99
+batch_size = 16 ## 256
 memory_size = 50000
-tau = 0.001 # polyak parameter for soft target update
-sampling_only_until = 2000
+tau = 0.01 # polyak parameter for soft target update 0.001
+sampling_only_until = 20 ## 2000
 
 # SETTING
 actor, actor_target = Actor(), Actor()
@@ -32,16 +32,18 @@ agent = DDPG(critic=critic,
 memory = ReplayMemory(memory_size)
 
 total_eps = 200
-print_every = 10
+print_every = 1 ## 10
 
 # EPISODE
 for n_epi in range(total_eps):
     ou_noise = OUProcess(mu=np.zeros(1))
     s = env.reset()
     cum_r = 0
-
     while True:
+        tmp_s = s
+        env.eta = tmp_s.reshape((1,1))
         s = to_tensor(s, size=(1, 1)).to(DEVICE)
+        # env.eta = s.reshape((1,1)) ##
         a = agent.get_action(s).cpu().numpy() + ou_noise()[0]
         ns, r, done, info = env.step(a)
 
@@ -65,9 +67,11 @@ for n_epi in range(total_eps):
             soft_update(agent.actor, agent.actor_target, tau)
             soft_update(agent.critic, agent.critic_target, tau)
 
+
+        print(experience)
         if done:
             break
-        print(experience)
+
 
     if n_epi % print_every == 0:
         msg = (n_epi, cum_r,temp_s ) # ~ -100 cumulative reward = "solved"

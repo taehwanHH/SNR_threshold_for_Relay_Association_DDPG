@@ -148,36 +148,33 @@ def mean_err(eta, iter_num=30):
 
 
 class CommunicationEnv:
-    def __init__(self, eta_upper, target_ber, max_stage=20, noise_var=sigma2):
-        self.target_ber = target_ber
+    def __init__(self,  max_time_step=40, noise_var=sigma2):
+
         self.noise_var = noise_var
 
         # Define the state space and action space
-        self.state_space = gym.spaces.Box(low=0, high=eta_upper, shape=(1,))
-        self.action_space = gym.spaces.Box(low=0, high=eta_upper, shape=(1,))
+        self.state_space = gym.spaces.Box(low=0, high=40, shape=(1,))
+        self.action_space = gym.spaces.Box(low=-0.2, high=4, shape=(1,))
 
         # Number of step per each episode
+        self.max_time_step = max_time_step
+        self.time_step = max_time_step
 
-        self.stage = max_stage
+        # Store past eta to get next eta
+        self.eta = 0
+        self.past_err = D_bits
 
     def step(self, action):
         # Convert the action from a tensor to a numpy array
         # action = action.detach().numpy()
 
         # Add noise to the action
-        action += np.random.normal(0, 0.1, size=action.shape)
+        action += np.random.normal(0, 0.05, size=action.shape) # standard deviation setting
 
         # Clip the action to the action space limits
         action = np.clip(action, self.action_space.low, self.action_space.high)
 
-        # Calculate the bit error rate (BER) based on the action value
-        err = mean_err(action,10)
-
-        # Calculate the reward based on the BER and target BER
-        reward = -np.abs(err - self.target_ber)
-
-        # Generate the next state based on the current state and action
-        state = action
+        state = self.eta + action
 
         # Add noise to the state
         state += np.random.normal(0, self.noise_var, size=state.shape)
@@ -185,11 +182,29 @@ class CommunicationEnv:
         # Clip the state to the state space limits
         state = np.clip(state, self.state_space.low, self.state_space.high)
 
+        # Calculate the bit error rate (BER) based on the action value
+        err = mean_err(state)
+
+
+        # Calculate the reward based on the BER and target BER
+        # if err <= 100:
+        #     reward = 1
+        # elif err <= 1000:
+        #     reward = 0.1
+        # else:
+        #     reward = -1
+        #
+        # reward = (self.past_err -err)/100
+        # self.past_err = err
+        reward = (-err+2000)/1000
+        # Generate the next state based on the current state and action
+
+
         # if step == 0, done = True
-        self.stage -= 1
+        self.time_step -= 1
 
         # Check if the episode is done
-        if self.stage == 0:
+        if self.time_step == 0:
             done = True
         else:
             done = False
@@ -206,7 +221,8 @@ class CommunicationEnv:
         # Clip the state to the state space limits
         state = np.clip(state, self.state_space.low, self.state_space.high)
 
-        self.stage = 20
+        self.time_step = self.max_time_step
+        self.past_err = D_bits
 
         return state
 
